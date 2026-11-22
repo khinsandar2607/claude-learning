@@ -1,0 +1,12 @@
+# Secrets - never commit API keys
+.env
+env.local
+
+# Dependencies
+node_modules/
+.venv/
+__pycache__/
+
+# Editor and OS files
+.DS_Store
+.vscode/
