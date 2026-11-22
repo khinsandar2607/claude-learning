@@ -3,20 +3,67 @@ import { betaTool } from "@anthropic-ai/sdk/helpers/beta/json-schema";
 
 const client = new Anthropic();
 
-// Fake weather data for practice. A real app would call a weather API here.
-function getWeather(city: string): string {
-  return JSON.stringify({ city, temperature_f: 95, condition: "sunny" });
+// Open-Meteo is free and needs no API key.
+// Docs: https://open-meteo.com/en/docs
+const GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
+const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
+
+// Open-Meteo returns WMO weather codes. These are the groups we report.
+function describeWeatherCode(code: number): string {
+  if (code === 0) return "clear sky";
+  if (code <= 3) return "partly cloudy";
+  if (code <= 48) return "foggy";
+  if (code <= 67) return "rainy";
+  if (code <= 77) return "snowy";
+  if (code <= 82) return "rain showers";
+  if (code <= 86) return "snow showers";
+  return "thunderstorms";
+}
+
+// Look up a city name to get its latitude and longitude.
+async function findCity(city: string) {
+  const url = `${GEOCODING_URL}?name=${encodeURIComponent(city)}&count=1`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Geocoding failed: HTTP ${response.status}`);
+
+  const data = (await response.json()) as {
+    results?: { name: string; country: string; latitude: number; longitude: number }[];
+  };
+  return data.results?.[0];
+}
+
+// Get the current temperature and conditions for a city.
+async function getWeather(city: string): Promise<string> {
+  const place = await findCity(city);
+  if (!place) return JSON.stringify({ error: `City not found: ${city}` });
+
+  const url =
+    `${FORECAST_URL}?latitude=${place.latitude}&longitude=${place.longitude}` +
+    `&current=temperature_2m,weather_code&temperature_unit=fahrenheit`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Forecast failed: HTTP ${response.status}`);
+
+  const data = (await response.json()) as {
+    current: { temperature_2m: number; weather_code: number };
+  };
+
+  return JSON.stringify({
+    city: place.name,
+    country: place.country,
+    temperature_f: data.current.temperature_2m,
+    condition: describeWeatherCode(data.current.weather_code),
+  });
 }
 
 // The tool definition: a name, a description, a JSON schema for the input,
 // and the function the tool runner calls when Claude asks for it.
 const weatherTool = betaTool({
   name: "get_weather",
-  description: "Get the current weather for a city.",
+  description: "Get the current temperature (Fahrenheit) and weather conditions for a city.",
   inputSchema: {
     type: "object",
     properties: {
-      city: { type: "string", description: "The city to check" },
+      city: { type: "string", description: "The city to check, such as Austin" },
     },
     required: ["city"],
   },
