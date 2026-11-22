@@ -1,3 +1,5 @@
+**English** | [日本語](README.ja.md)
+
 # Claude API Learning Project
 
 Scripts from the Claude Platform 101 course, in TypeScript and Python. Each file is a small, separate example.
