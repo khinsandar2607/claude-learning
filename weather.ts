@@ -55,6 +55,37 @@ async function getWeather(city: string): Promise<string> {
   });
 }
 
+// Get a daily forecast (high, low, and conditions) for a city, up to 7 days.
+async function getForecast(city: string, days: number): Promise<string> {
+  const place = await findCity(city);
+  if (!place) return JSON.stringify({ error: `City not found: ${city}` });
+
+  const url =
+    `${FORECAST_URL}?latitude=${place.latitude}&longitude=${place.longitude}` +
+    `&daily=weather_code,temperature_2m_max,temperature_2m_min` +
+    `&temperature_unit=fahrenheit&timezone=auto&forecast_days=${days}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Forecast failed: HTTP ${response.status}`);
+
+  const data = (await response.json()) as {
+    daily: {
+      time: string[];
+      weather_code: number[];
+      temperature_2m_max: number[];
+      temperature_2m_min: number[];
+    };
+  };
+
+  const daily = data.daily.time.map((date, i) => ({
+    date,
+    high_f: data.daily.temperature_2m_max[i],
+    low_f: data.daily.temperature_2m_min[i],
+    condition: describeWeatherCode(data.daily.weather_code[i]),
+  }));
+
+  return JSON.stringify({ city: place.name, country: place.country, daily });
+}
+
 // The tool definition: a name, a description, a JSON schema for the input,
 // and the function the tool runner calls when Claude asks for it.
 const weatherTool = betaTool({
@@ -70,6 +101,20 @@ const weatherTool = betaTool({
   run: ({ city }) => getWeather(city),
 });
 
+const forecastTool = betaTool({
+  name: "get_forecast",
+  description: "Get the daily forecast (high, low, and conditions) for a city, up to 7 days.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      city: { type: "string", description: "The city to check, such as Austin" },
+      days: { type: "integer", description: "Number of days to forecast, from 1 to 7", minimum: 1, maximum: 7 },
+    },
+    required: ["city"],
+  },
+  run: ({ city, days }) => getForecast(city, days ?? 3),
+});
+
 // The tool runner handles the request, tool call, and result loop for us.
 async function run(question: string): Promise<void> {
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: question }];
@@ -77,7 +122,7 @@ async function run(question: string): Promise<void> {
   const finalMessage = await client.beta.messages.toolRunner({
     model: "claude-opus-5-5",
     max_tokens: 2048,
-    tools: [weatherTool],
+    tools: [weatherTool, forecastTool],
     messages,
   });
 
@@ -87,3 +132,4 @@ async function run(question: string): Promise<void> {
 }
 
 await run("What's the temperature and weather conditions in Austin today?");
+await run("What's the forecast for Austin for the next 3 days?");
